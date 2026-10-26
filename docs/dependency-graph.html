@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blueprint Dependency Graph</title>
+<meta name="description" content="Dependency DAG of the lean-minimax blueprint (Neyman–Pearson → Le Cam), colored by formalization status, with a next-to-formalize frontier highlighter.">
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1f2933; --muted:#64748b;
+    --border:#e2e8f0; --accent:#2563eb;
+    --diagram-bg:#ffffff;
+    --done:#10b981; --partial:#f59e0b; --todo:#94a3b8;
+    --done-soft:#d1fae5; --partial-soft:#fef3c7; --todo-soft:#eef2f7;
+  }
+  :root:not([data-theme="light"]) { }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f141a; --panel:#161c24; --ink:#e7edf3; --muted:#93a1b1;
+      --border:#273140; --accent:#60a5fa; --diagram-bg:#f8fafc;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f141a; --panel:#161c24; --ink:#e7edf3; --muted:#93a1b1;
+    --border:#273140; --accent:#60a5fa; --diagram-bg:#f8fafc;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap{max-width:1200px; margin:0 auto; padding:24px 16px 64px}
+  header h1{margin:0 0 4px; font-size:1.5rem; letter-spacing:-.01em}
+  header p{margin:0; color:var(--muted); font-size:.95rem}
+  .toolbar{
+    display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center;
+    margin:18px 0; padding:12px 14px; background:var(--panel);
+    border:1px solid var(--border); border-radius:12px;
+  }
+  .legend{display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center}
+  .chip{display:inline-flex; align-items:center; gap:7px; font-size:.85rem; color:var(--muted)}
+  .dot{width:13px; height:13px; border-radius:4px; border:1.5px solid}
+  .dot.done{background:var(--done-soft); border-color:var(--done)}
+  .dot.partial{background:var(--partial-soft); border-color:var(--partial)}
+  .dot.todo{background:var(--todo-soft); border-color:var(--todo)}
+  .dot.ready{background:transparent; border-color:var(--accent); border-width:2.5px}
+  .spacer{flex:1 1 auto}
+  button{
+    font:inherit; font-size:.88rem; cursor:pointer; color:var(--ink);
+    background:var(--panel); border:1px solid var(--border);
+    padding:7px 13px; border-radius:9px;
+  }
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .counts{display:flex; gap:16px; flex-wrap:wrap; margin:0 0 16px}
+  .stat{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:10px 16px; min-width:92px}
+  .stat b{display:block; font-size:1.5rem; line-height:1.1}
+  .stat span{font-size:.8rem; color:var(--muted)}
+  .diagram-card{
+    background:var(--diagram-bg); border:1px solid var(--border);
+    border-radius:14px; padding:8px; overflow:auto; max-height:78vh;
+  }
+  .diagram-card svg{max-width:none !important; height:auto}
+  .note{color:var(--muted); font-size:.85rem; margin:14px 2px 0}
+  .note code{background:var(--panel); border:1px solid var(--border); padding:1px 5px; border-radius:5px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Blueprint Dependency Graph</h1>
+    <p>lean-minimax: Neyman–Pearson testing → Le Cam two-point minimax bound · colored by formalization status</p>
+  </header>
+
+  <div class="counts" id="counts"></div>
+
+  <div class="toolbar">
+    <div class="legend">
+      <span class="chip"><span class="dot done"></span>Formalized &amp; building</span>
+      <span class="chip"><span class="dot partial"></span>Partial / provisional</span>
+      <span class="chip"><span class="dot todo"></span>Not started</span>
+      <span class="chip"><span class="dot ready"></span>Ready next (blue ring)</span>
+    </div>
+    <span class="spacer"></span>
+    <button id="toggleReady">Highlight ready-to-formalize</button>
+  </div>
+
+  <div class="diagram-card"><div id="graph">Rendering…</div></div>
+
+  <p class="note">
+    Arrows point <b>prerequisite → dependent</b>, so logical build order flows downward.
+    <b>Ready next</b> = a not-started node whose every prerequisite is already formalized or partial.
+    Status reflects <b>statlib</b>; chapters 1–3 (Testing) are also merged into lean-minimax <code>main</code> (PR #36).
+    Nodes &amp; dependencies derived from <code>content/blueprint/*.md</code> (directions curated from the prose cross-references).
+  </p>
+</div>
+
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+// ---- Blueprint nodes: {id, label, ch, status} ; status in done|partial|todo ----
+const CH = {
+  1:"1 · Simple tests & errors", 2:"2 · Neyman–Pearson lemma", 3:"3 · Total variation",
+  4:"4 · f-divergences", 5:"5 · Le Cam two-point", 6:"6 · Kernel migration",
+  7:"7 · NP class", 8:"8 · Error function", 9:"9 · Deficiency", 10:"10 · Contiguity"
+};
+const N = [
+  ["experiment","Binary experiment",1,"done"],
+  ["test","Critical function (Test)",1,"done"],
+  ["typeI","Type I error α",1,"done"],
+  ["typeII","Type II error β",1,"done"],
+  ["lr","Likelihood ratio",1,"done"],
+
+  ["dominating","Dominating measure &amp; densities",2,"done"],
+  ["threshold","Threshold test Tₜ,η",2,"done"],
+  ["wrisk","Weighted risk Rₐ,ᵦ",2,"done"],
+  ["nplemma","NP lemma — Bayes envelope",2,"done"],
+  ["npsum","Sum-minimizing test",2,"done"],
+
+  ["tv","Total variation",3,"done"],
+  ["tvforms","Integral forms of TV",3,"done"],
+  ["minerr","Min error = 1 − TV",3,"done"],
+
+  ["fdiv","f-divergence D_f",4,"partial"],
+  ["fdnn","Non-negativity",4,"todo"],
+  ["fdconv","Joint convexity",4,"todo"],
+  ["dpi","Data-processing inequality",4,"todo"],
+  ["tvfdiv","TV as f-divergence",4,"todo"],
+  ["chisq","χ²-divergence",4,"partial"],
+  ["chisqfdiv","χ² as f-divergence",4,"todo"],
+  ["hellinger","Squared Hellinger &amp; affinity",4,"partial"],
+  ["helfdiv","Hellinger as f-divergence",4,"todo"],
+  ["tvchisq","TV ≤ ½√χ²",4,"done"],
+  ["kl","Kullback–Leibler",4,"todo"],
+  ["pinsker","Pinsker",4,"todo"],
+
+  ["minimax","Minimax risk",5,"todo"],
+  ["lecam","Le Cam two-point bound",5,"todo"],
+  ["lecamchi","χ² form of the bound",5,"todo"],
+
+  ["k0","Stage 0: test ↔ kernel",6,"todo"],
+  ["k1","Stage 1: errors as compositions",6,"todo"],
+  ["k2","Stage 2: cutover",6,"todo"],
+  ["k3","Stage 3: LR test as kernel",6,"todo"],
+
+  ["tproblem","Testing problem at level α",7,"todo"],
+  ["better","One test better",7,"todo"],
+  ["nonrand","Non-randomized test",7,"todo"],
+  ["unbiased","Unbiased test",7,"todo"],
+  ["envpow","Envelope power function",7,"todo"],
+  ["optexists","Optimal test exists",7,"todo"],
+  ["cclass","Complete class",7,"todo"],
+  ["admiss","Admissible test",7,"todo"],
+  ["nptf","NP test family",7,"todo"],
+  ["npexist","MP NP test ∀ level",7,"todo"],
+  ["npmono","Monotonicity of NP family",7,"todo"],
+  ["npcc","NP family is complete class",7,"todo"],
+  ["npadm","Every NP test admissible",7,"todo"],
+  ["npoptq","NP test optimal at Q",7,"todo"],
+  ["gnp","Generalized NP test",7,"todo"],
+  ["tgnp","Generalized NP lemma",7,"todo"],
+
+  ["errfun","Error function E(t)",8,"todo"],
+  ["errfunnp","Realised by NP family",8,"todo"],
+  ["errfunconc","Concavity &amp; endpoints",8,"todo"],
+  ["errfuntv","Computes TV",8,"todo"],
+
+  ["deficiency","Deficiency",9,"todo"],
+  ["moreinf","More informative",9,"todo"],
+  ["lecamdist","Le Cam distance",9,"todo"],
+  ["defpseudo","Pseudometric",9,"todo"],
+  ["deferr","Deficiency via error fns",9,"todo"],
+  ["equiverr","Equivalence = equal E",9,"todo"],
+
+  ["contiguity","Contiguity (TFAE)",10,"partial"],
+];
+// ---- edges: [prerequisite, dependent] ----
+const E = [
+  ["experiment","test"],["experiment","lr"],["test","typeI"],["test","typeII"],
+  ["experiment","dominating"],["dominating","threshold"],["lr","threshold"],["test","threshold"],
+  ["typeI","wrisk"],["typeII","wrisk"],["threshold","nplemma"],["wrisk","nplemma"],
+  ["dominating","nplemma"],["nplemma","npsum"],
+  ["tv","tvforms"],["dominating","tvforms"],["npsum","minerr"],["tvforms","minerr"],
+  ["lr","fdiv"],["fdiv","fdnn"],["fdiv","fdconv"],["fdconv","dpi"],["fdiv","tvfdiv"],["tvforms","tvfdiv"],
+  ["lr","chisq"],["fdiv","chisqfdiv"],["chisq","chisqfdiv"],["lr","hellinger"],["fdiv","helfdiv"],
+  ["hellinger","helfdiv"],["tvforms","tvchisq"],["chisq","tvchisq"],["fdiv","kl"],["kl","pinsker"],["tvfdiv","pinsker"],
+  ["minerr","lecam"],["minimax","lecam"],["lecam","lecamchi"],["tvchisq","lecamchi"],
+  ["test","k0"],["k0","k1"],["typeI","k1"],["typeII","k1"],["k1","k2"],["k2","k3"],["threshold","k3"],
+  ["test","tproblem"],["typeI","tproblem"],["typeII","tproblem"],["typeI","better"],["typeII","better"],
+  ["test","nonrand"],["tproblem","unbiased"],["tproblem","envpow"],["tproblem","optexists"],
+  ["better","cclass"],["better","admiss"],["threshold","nptf"],["nptf","npexist"],["optexists","npexist"],
+  ["nptf","npmono"],["nptf","npcc"],["cclass","npcc"],["nptf","npadm"],["admiss","npadm"],
+  ["nptf","npoptq"],["nplemma","npoptq"],["nptf","gnp"],["gnp","tgnp"],
+  ["nplemma","errfun"],["errfun","errfunnp"],["nptf","errfunnp"],["errfun","errfunconc"],
+  ["errfun","errfuntv"],["minerr","errfuntv"],
+  ["k0","deficiency"],["deficiency","moreinf"],["deficiency","lecamdist"],["lecamdist","defpseudo"],
+  ["deficiency","deferr"],["errfun","deferr"],["deferr","equiverr"],["errfuntv","equiverr"],
+  ["lr","contiguity"],
+];
+
+const statusOf = Object.fromEntries(N.map(n => [n[0], n[3]]));
+const preds = {}; N.forEach(n => preds[n[0]] = []);
+E.forEach(([a,b]) => preds[b].push(a));
+
+// frontier = todo node whose every prerequisite is done|partial
+const ready = new Set(N.filter(n => n[3] === "todo" &&
+  preds[n[0]].every(p => statusOf[p] === "done" || statusOf[p] === "partial")
+).map(n => n[0]));
+
+// counts
+const c = {done:0, partial:0, todo:0};
+N.forEach(n => c[n[3]]++);
+document.getElementById("counts").innerHTML = [
+  ["Total", N.length, "var(--ink)"], ["Formalized", c.done, "var(--done)"],
+  ["Partial", c.partial, "var(--partial)"], ["Not started", c.todo, "var(--todo)"],
+  ["Ready next", ready.size, "var(--accent)"]
+].map(([l,v,col]) => `<div class="stat"><b style="color:${col}">${v}</b><span>${l}</span></div>`).join("");
+
+function esc(s){ return s.replace(/"/g,"&quot;"); }
+function buildDef(showReady){
+  let s = "flowchart TD\n";
+  for(const ch of Object.keys(CH)){
+    const members = N.filter(n => n[2] == ch);
+    if(!members.length) continue;
+    s += `  subgraph ch${ch}["${CH[ch]}"]\n    direction TB\n`;
+    members.forEach(n => { s += `    ${n[0]}["${esc(n[1])}"]\n`; });
+    s += "  end\n";
+  }
+  E.forEach(([a,b]) => { s += `  ${a} --> ${b}\n`; });
+  s += "  classDef done fill:#d1fae5,stroke:#059669,color:#064e3b;\n";
+  s += "  classDef partial fill:#fef3c7,stroke:#d97706,color:#78350f;\n";
+  s += "  classDef todo fill:#eef2f7,stroke:#94a3b8,color:#334155;\n";
+  s += "  classDef ready fill:#eef2f7,stroke:#2563eb,stroke-width:3px,color:#1e3a8a;\n";
+  const by = {done:[],partial:[],todo:[],ready:[]};
+  N.forEach(n => {
+    if(showReady && ready.has(n[0])) by.ready.push(n[0]);
+    else by[n[3]].push(n[0]);
+  });
+  for(const k of ["done","partial","todo","ready"])
+    if(by[k].length) s += `  class ${by[k].join(",")} ${k};\n`;
+  return s;
+}
+
+mermaid.initialize({ startOnLoad:false, theme:"base", securityLevel:"loose",
+  flowchart:{ useMaxWidth:false, nodeSpacing:28, rankSpacing:42, curve:"basis" },
+  themeVariables:{ fontSize:"13px", clusterBkg:"#f1f5f9", clusterBorder:"#cbd5e1", lineColor:"#94a3b8" }
+});
+
+let showReady = false, n = 0;
+async function render(){
+  const def = buildDef(showReady);
+  const { svg } = await mermaid.render("m"+(n++), def);
+  document.getElementById("graph").innerHTML = svg;
+}
+document.getElementById("toggleReady").addEventListener("click", (e)=>{
+  showReady = !showReady;
+  e.target.classList.toggle("on", showReady);
+  e.target.textContent = showReady ? "Showing ready-to-formalize" : "Highlight ready-to-formalize";
+  render();
+});
+render();
+</script>
+</body>
+</html>
