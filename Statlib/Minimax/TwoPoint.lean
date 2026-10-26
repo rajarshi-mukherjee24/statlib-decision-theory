@@ -56,4 +56,25 @@ theorem lecam_two_point_chiSq (P Q : Measure Ω) [IsProbabilityMeasure P] [IsPro
     _ = errSum P Q 1 (npTest P Q 1 1) := (npTest_error_one_eq_llr P Q hPQ 1 le_rfl).symm
     _ ≤ errSum P Q 1 T := (npTest_isMinimizer P Q 1 1 le_rfl).2.2 T hT hT1
 
+/-- The **two-point (Bayes) minimax risk**: the least achievable sum of the two
+error probabilities over all randomized tests `φ : Test Ω`. -/
+noncomputable def minimaxRisk (P Q : Measure Ω) : ℝ≥0∞ :=
+  ⨅ φ : Test Ω, errSum P Q 1 φ.toFun
+
+/-- **The two-point minimax risk equals `1 − TV(P, Q)`**, attained by the
+Neyman–Pearson test. -/
+theorem minimaxRisk_eq (P Q : Measure Ω) [IsProbabilityMeasure P] [IsProbabilityMeasure Q] :
+    minimaxRisk P Q = 1 - totalVariation P Q := by
+  refine le_antisymm ?_ (le_iInf fun φ => lecam_two_point P Q φ.measurable φ.le_one)
+  calc minimaxRisk P Q
+      ≤ errSum P Q 1 (thresholdTest P Q 1 1 le_rfl).toFun := iInf_le _ (thresholdTest P Q 1 1 le_rfl)
+    _ = 1 - totalVariation P Q := npTest_error_one_eq P Q 1 le_rfl
+
+/-- **χ² lower bound on the two-point minimax risk.** Under `P ≪ Q`,
+`minimaxRisk P Q ≥ 1 − ½√(χ²(P ‖ Q))`. -/
+theorem minimaxRisk_ge_chiSq (P Q : Measure Ω) [IsProbabilityMeasure P] [IsProbabilityMeasure Q]
+    (hPQ : P ≪ Q) :
+    1 - 2⁻¹ * (chiSqDiv P Q) ^ ((1 : ℝ) / 2) ≤ minimaxRisk P Q :=
+  le_iInf fun φ => lecam_two_point_chiSq P Q hPQ φ.measurable φ.le_one
+
 end Statlib.Minimax
